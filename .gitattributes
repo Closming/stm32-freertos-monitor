@@ -1,0 +1,23 @@
+# 统一换行符处理。
+#
+# 为什么需要：Keil 保存文件用 CRLF，而 Tools/ 下的脚本和 Host/ 下的 Python
+# 用 LF。不统一的话每次编辑都会产生"整个文件都变了"的假 diff。
+
+# 默认：git 自动判断文本文件，仓库里统一存 LF
+* text=auto
+
+# Shell 脚本和 Python 必须用 LF —— CRLF 会让 shebang 失效
+*.sh    text eol=lf
+*.py    text eol=lf
+
+# C 源码与 Keil 工程文件保持 CRLF（Keil 的习惯，改了也无害但没必要）
+*.c         text eol=crlf
+*.h         text eol=crlf
+*.uvprojx   text eol=crlf
+*.uvoptx    text eol=crlf
+*.ioc       text eol=crlf
+
+# 明确标记二进制，避免 git 试图做文本转换
+*.jpg   binary
+*.png   binary
+*.pdf   binary
