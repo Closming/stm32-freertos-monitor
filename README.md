@@ -203,6 +203,10 @@
 
 ## 构建与运行
 
+```bash
+git clone https://github.com/Closming/stm32-freertos-monitor.git
+```
+
 ### 下位机
 
 ```
