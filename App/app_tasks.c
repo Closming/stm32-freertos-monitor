@@ -397,7 +397,16 @@ static void task_display(void *argument)
         if (osMessageQueueGet(s_display_queue, &s, NULL, 0u) == osOK)
         {
             render_screen(&s);
-            (void)ssd1306_flush();
+
+            /* ★ 刷屏失败不能静默。原来这里是 `(void)ssd1306_flush();`，
+               返回值被丢掉、s_flush_error_count 又没人读 —— 屏不亮的时候
+               串口上一条线索都没有，只能在硬件上瞎猜。
+               失败率不用很精确，能看出"在刷但刷不过去"就够了。 */
+            if (!ssd1306_flush())
+            {
+                uart_log("[DISP] flush FAILED, total=%u\r\n",
+                         (unsigned)ssd1306_get_flush_error_count());
+            }
         }
 
         s_heartbeat[TASK_ID_DISPLAY]++;

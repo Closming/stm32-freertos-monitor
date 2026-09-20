@@ -21,12 +21,26 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "$SCRIPT_DIR")"
 
-ARMCC="G:/keil/ARM/ARMCC/Bin/armcc.exe"
+# Keil 装在哪块盘、哪个目录因人而异（本机是 D:/keil，但另一台可能是
+# C:/Keil_v5），写死一个路径的话换台机器脚本就废了。
+# 所以：先用 ARMCC 环境变量，没设就在常见位置里找一遍。
+ARMCC="${ARMCC:-}"
+if [ -z "$ARMCC" ]; then
+  for cand in D:/keil E:/keil C:/keil G:/keil \
+              C:/Keil_v5 D:/Keil_v5 E:/Keil_v5 \
+              "C:/Program Files/Keil_v5" "C:/Program Files (x86)/Keil_v5"; do
+    if [ -x "$cand/ARM/ARMCC/Bin/armcc.exe" ]; then
+      ARMCC="$cand/ARM/ARMCC/Bin/armcc.exe"
+      break
+    fi
+  done
+fi
+
 FW="${CUBE_FW:-C:/Users/Administrator/STM32Cube/Repository/STM32Cube_FW_F1_V1.8.4}"
 
-if [ ! -x "$ARMCC" ]; then
-  echo "找不到 armcc：$ARMCC" >&2
-  echo "如果你的 Keil 装在别处，改这个脚本里的 ARMCC 变量。" >&2
+if [ -z "$ARMCC" ] || [ ! -x "$ARMCC" ]; then
+  echo "找不到 armcc（找过 D:/keil、C:/Keil_v5 等常见位置）。" >&2
+  echo "如果你的 Keil 装在别处，用环境变量指定：ARMCC=/你的路径/armcc.exe bash Tools/check_app.sh" >&2
   exit 1
 fi
 

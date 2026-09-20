@@ -127,7 +127,7 @@ int main(void)
   {
     /* PC13 板载 LED 低电平点亮，翻转一次即改变亮灭状态 */
     HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-    /* �? 0.5s + �? 0.5s = 1Hz */
+    /* �? 0.5s + �? 0.5s = 1Hz */
     HAL_Delay(500);
     /* USER CODE END WHILE */
 
@@ -213,8 +213,36 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
+  /* 让"初始化失败"变成肉眼可见的信号 —— 而不是停在一个死的死循环里。
+   *
+   * 为什么必须做这件事：app_ssd1306.c 的 ssd1306_init() 在 I²C 事务失败时
+   * 会调本函数。CubeMX 生成的默认实现是 `__disable_irq(); while(1){}`，
+   * 板上**没有任何提示**，看上去和"程序根本没跑起来"一模一样。
+   * 护栏设了却不接线，等于没设。
+   *
+   * 为什么先 __disable_irq()：
+   *   本函数可能是从 TaskDisplay（最低优先级）里调用的，而 TaskAcquire
+   *   每秒也在翻转**同一颗** PC13（调度器心跳）。不关中断两处翻转会互相
+   *   打架，看到的是混合节奏，信号就废了。
+   *   关掉中断 → SysTick 停 → 调度器停 → 只剩这里在闪，信号干净。
+   *
+   * 现象对照：
+   *   PC13 约 1 秒一闪  = 正常（调度器心跳，本函数没被调用）
+   *   PC13 飞快地闪     = 本函数被调用 = 初始化失败 */
+  __disable_irq();
 
+  for (;;)
+  {
+    volatile uint32_t i;
+
+    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+
+    /* 约 500000 × 6 周期 / 72MHz ≈ 42ms → 约 12Hz 的快闪 */
+    for (i = 0u; i < 500000u; i++)
+    {
+      __NOP();
+    }
+  }
   /* USER CODE END Error_Handler_Debug */
 }
 

@@ -298,6 +298,8 @@ void i2c_init(void)
        两个器件都有上拉电阻时，这一步是安全且必要的。 */
     sda_release();
     scl_release();
+    i2c_delay();
+
     i2c_bus_recover();
 }
 
