@@ -527,12 +527,18 @@ HAL_NVIC_EnableIRQ(USART1_IRQn);
 
 #### 根因
 
-`osEventFlagsWait` 在 `Middlewares/.../cmsis_os2.c` 里的封装用的是**严格相等**判断：
+`osEventFlagsWait` 在 `Middlewares/.../cmsis_os2.c` 里的封装用的是**严格相等**判断
+（**这是本工程当时所用的 FreeRTOS V10.0.1 的行为**）：
 
 ```c
 rflags = xEventGroupWaitBits(...);   /* 返回的是「整个事件组的值」 */
 if (flags != rflags) { return osErrorTimeout; }   /* ★ 不是按位判断 */
 ```
+
+> ★ **上游后来修掉了这一处。** FreeRTOS **V10.3.1** 的同一函数已改成**按位**判断：
+> `if ((flags & rflags) != flags)`。
+> **所以本节的根因描述只对 V10.0.1 成立。** 这一段保留在这里，是因为它记录的是当时
+> 真实的排障过程 —— 而且上游后来的修改，**独立印证了「兼容层误解了返回值语义」这个诊断**。
 
 而 FreeRTOS 的 `xEventGroupWaitBits` 返回的是**整个事件组的值**
 （`event_groups.c` 里返回的就是 `uxEventBits`），**不是你要的那几位**。

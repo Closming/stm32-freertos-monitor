@@ -1,22 +1,22 @@
+/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
-  * File Name          : USART.c
-  * Description        : This file provides code for the configuration
-  *                      of the USART instances.
+  * @file    usart.c
+  * @brief   This file provides code for the configuration
+  *          of the USART instances.
   ******************************************************************************
   * @attention
   *
-  * <h2><center>&copy; Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.</center></h2>
+  * Copyright (c) 2026 STMicroelectronics.
+  * All rights reserved.
   *
-  * This software component is licensed by ST under Ultimate Liberty license
-  * SLA0044, the "License"; You may not use this file except in compliance with
-  * the License. You may obtain a copy of the License at:
-  *                             www.st.com/SLA0044
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
   *
   ******************************************************************************
   */
-
+/* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "usart.h"
 
@@ -32,6 +32,13 @@ DMA_HandleTypeDef hdma_usart1_tx;
 void MX_USART1_UART_Init(void)
 {
 
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
   huart1.Instance = USART1;
   huart1.Init.BaudRate = 115200;
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
@@ -44,6 +51,9 @@ void MX_USART1_UART_Init(void)
   {
     Error_Handler();
   }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
 
 }
 
@@ -58,11 +68,11 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
   /* USER CODE END USART1_MspInit 0 */
     /* USART1 clock enable */
     __HAL_RCC_USART1_CLK_ENABLE();
-  
+
     __HAL_RCC_GPIOA_CLK_ENABLE();
-    /**USART1 GPIO Configuration    
+    /**USART1 GPIO Configuration
     PA9     ------> USART1_TX
-    PA10     ------> USART1_RX 
+    PA10     ------> USART1_RX
     */
     GPIO_InitStruct.Pin = GPIO_PIN_9;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
@@ -91,20 +101,9 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
 
     __HAL_LINKDMA(uartHandle,hdmatx,hdma_usart1_tx);
 
-    /* USART1 interrupt Init
-     *
-     * ★ 这里的 DMA 只负责"把字节搬出去"，搬完之后还得靠 USART1 自己的
-     *   "发送完成(TC)"中断来收尾 —— 清 gState、回调 TxCplt。
-     *   没有这一段，DMA 发出第一帧后整个发送通道会永久卡在 BUSY_TX。
-     *   详见 Src/stm32f1xx_it.c 里 USART1_IRQHandler 的说明。
-     *
-     * ⚠️ 优先级必须是 5，不能更小。HAL_UART_TxCpltCallback 回调里要调
-     *   osSemaphoreRelease()，那是 FreeRTOS 的 ISR 版 API，要求中断优先级
-     *   数值 >= configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY(5)，
-     *   填小于 5 的值会随机跑飞。与 DMA1_Channel4 保持一致。 */
+    /* USART1 interrupt Init */
     HAL_NVIC_SetPriority(USART1_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(USART1_IRQn);
-
   /* USER CODE BEGIN USART1_MspInit 1 */
 
   /* USER CODE END USART1_MspInit 1 */
@@ -121,26 +120,25 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
   /* USER CODE END USART1_MspDeInit 0 */
     /* Peripheral clock disable */
     __HAL_RCC_USART1_CLK_DISABLE();
-  
-    /**USART1 GPIO Configuration    
+
+    /**USART1 GPIO Configuration
     PA9     ------> USART1_TX
-    PA10     ------> USART1_RX 
+    PA10     ------> USART1_RX
     */
     HAL_GPIO_DeInit(GPIOA, GPIO_PIN_9|GPIO_PIN_10);
 
     /* USART1 DMA DeInit */
     HAL_DMA_DeInit(uartHandle->hdmatx);
 
-    /* USART1 interrupt DeInit */
+    /* USART1 interrupt Deinit */
     HAL_NVIC_DisableIRQ(USART1_IRQn);
   /* USER CODE BEGIN USART1_MspDeInit 1 */
 
   /* USER CODE END USART1_MspDeInit 1 */
   }
-} 
+}
 
 /* USER CODE BEGIN 1 */
 
 /* USER CODE END 1 */
 
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

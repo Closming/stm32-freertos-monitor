@@ -17,7 +17,6 @@
   ******************************************************************************
   */
 /* USER CODE END Header */
-
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
@@ -71,10 +70,10 @@ void MX_FREERTOS_Init(void);
   */
 int main(void)
 {
+
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
-  
 
   /* MCU Configuration--------------------------------------------------------*/
 
@@ -99,26 +98,17 @@ int main(void)
   MX_ADC1_Init();
   MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
-
-  /* ★ 必须先初始化 CMSIS-RTOS 内核，才能创建对象（任务/队列/互斥锁）。
-   *
-   *    CubeMX 是按 CMSIS-RTOS V1 生成 main() 的，而 V1 没有这个 API，
-   *    所以这一行是手工补的。缺了它的后果很隐蔽：
-   *        KernelState 停在 osKernelInactive
-   *        -> osKernelStart() 直接返回 osError
-   *        -> vTaskStartScheduler() 从不执行
-   *        -> 六个任务一个都不跑，程序落回下面 while(1) 的点灯循环
-   *    现象是"LED 照常闪、串口没数据、OLED 全黑"，看起来像新代码没生效。 */
   osKernelInitialize();
 
   /* USER CODE END 2 */
 
-  /* Call init function for freertos objects (in freertos.c) */
-  MX_FREERTOS_Init(); 
+  /* Init scheduler */
+  osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
+  MX_FREERTOS_Init();
 
   /* Start scheduler */
   osKernelStart();
-  
+
   /* We should never get here as control is now taken by the scheduler */
 
   /* Infinite loop */
@@ -146,7 +136,8 @@ void SystemClock_Config(void)
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
   RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
-  /** Initializes the CPU, AHB and APB busses clocks 
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
@@ -160,7 +151,8 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  /** Initializes the CPU, AHB and APB busses clocks 
+
+  /** Initializes the CPU, AHB and APB buses clocks
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
@@ -198,7 +190,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   /* USER CODE BEGIN Callback 0 */
 
   /* USER CODE END Callback 0 */
-  if (htim->Instance == TIM4) {
+  if (htim->Instance == TIM4)
+  {
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
@@ -245,8 +238,7 @@ void Error_Handler(void)
   }
   /* USER CODE END Error_Handler_Debug */
 }
-
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
   *         where the assert_param error has occurred.
@@ -255,12 +247,10 @@ void Error_Handler(void)
   * @retval None
   */
 void assert_failed(uint8_t *file, uint32_t line)
-{ 
+{
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
      tex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
-
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

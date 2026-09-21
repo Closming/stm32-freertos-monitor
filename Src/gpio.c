@@ -1,24 +1,26 @@
+/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
-  * File Name          : gpio.c
-  * Description        : This file provides code for the configuration
-  *                      of all used GPIO pins.
+  * @file    gpio.c
+  * @brief   This file provides code for the configuration
+  *          of all used GPIO pins.
   ******************************************************************************
   * @attention
   *
-  * <h2><center>&copy; Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.</center></h2>
+  * Copyright (c) 2026 STMicroelectronics.
+  * All rights reserved.
   *
-  * This software component is licensed by ST under Ultimate Liberty license
-  * SLA0044, the "License"; You may not use this file except in compliance with
-  * the License. You may obtain a copy of the License at:
-  *                             www.st.com/SLA0044
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
   *
   ******************************************************************************
   */
+/* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
 #include "gpio.h"
+
 /* USER CODE BEGIN 0 */
 
 /* USER CODE END 0 */
@@ -30,9 +32,9 @@
 
 /* USER CODE END 1 */
 
-/** Configure pins as 
-        * Analog 
-        * Input 
+/** Configure pins as
+        * Analog
+        * Input
         * Output
         * EVENT_OUT
         * EXTI
@@ -57,27 +59,27 @@ void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, I2C_SCL_Pin|I2C_SDA_Pin, GPIO_PIN_SET);
 
-  /*Configure GPIO pin : PtPin */
+  /*Configure GPIO pin : LED_Pin */
   GPIO_InitStruct.Pin = LED_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PtPin */
+  /*Configure GPIO pin : KEY_Pin */
   GPIO_InitStruct.Pin = KEY_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(KEY_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PtPin */
+  /*Configure GPIO pin : BEEP_Pin */
   GPIO_InitStruct.Pin = BEEP_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(BEEP_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PBPin PBPin */
+  /*Configure GPIO pins : I2C_SCL_Pin I2C_SDA_Pin */
   GPIO_InitStruct.Pin = I2C_SCL_Pin|I2C_SDA_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
@@ -85,8 +87,6 @@ void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
-  /* KEY(PA3) 的按键中断。优先级 5 = configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY，
-     中断里要调 osThreadFlagsSet()，数值小于 5 会随机跑飞。 */
   HAL_NVIC_SetPriority(EXTI3_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(EXTI3_IRQn);
 
@@ -95,5 +95,3 @@ void MX_GPIO_Init(void)
 /* USER CODE BEGIN 2 */
 
 /* USER CODE END 2 */
-
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

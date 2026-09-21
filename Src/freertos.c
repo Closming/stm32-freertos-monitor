@@ -49,12 +49,20 @@
 /* USER CODE BEGIN Variables */
 
 /* USER CODE END Variables */
+/* Definitions for defaultTask */
+osThreadId_t defaultTaskHandle;
+const osThreadAttr_t defaultTask_attributes = {
+  .name = "defaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
    
 /* USER CODE END FunctionPrototypes */
 
+void StartDefaultTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -84,7 +92,9 @@ void MX_FREERTOS_Init(void) {
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
 
-  /* ★ 这里原本是 CubeMX 生成的 defaultTask，已删除，原因见下方说明 */
+  /* Create the thread(s) */
+  /* creation of defaultTask */
+  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
 
@@ -109,6 +119,28 @@ void MX_FREERTOS_Init(void) {
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
 
+  /* USER CODE BEGIN RTOS_EVENTS */
+  /* add events, ... */
+  /* USER CODE END RTOS_EVENTS */
+
+}
+
+/* USER CODE BEGIN Header_StartDefaultTask */
+/**
+  * @brief  Function implementing the defaultTask thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header_StartDefaultTask */
+void StartDefaultTask(void *argument)
+{
+  /* USER CODE BEGIN StartDefaultTask */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END StartDefaultTask */
 }
 
 /* Private application code --------------------------------------------------*/
@@ -116,4 +148,3 @@ void MX_FREERTOS_Init(void) {
      
 /* USER CODE END Application */
 
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

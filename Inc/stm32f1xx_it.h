@@ -23,8 +23,8 @@
 #define __STM32F1xx_IT_H
 
 #ifdef __cplusplus
- extern "C" {
-#endif 
+extern "C" {
+#endif
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -53,10 +53,11 @@ void MemManage_Handler(void);
 void BusFault_Handler(void);
 void UsageFault_Handler(void);
 void DebugMon_Handler(void);
+void EXTI3_IRQHandler(void);
 void DMA1_Channel1_IRQHandler(void);
 void DMA1_Channel4_IRQHandler(void);
-void USART1_IRQHandler(void);
 void TIM4_IRQHandler(void);
+void USART1_IRQHandler(void);
 /* USER CODE BEGIN EFP */
 
 /* USER CODE END EFP */
@@ -66,5 +67,3 @@ void TIM4_IRQHandler(void);
 #endif
 
 #endif /* __STM32F1xx_IT_H */
-
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

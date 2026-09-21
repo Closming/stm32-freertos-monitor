@@ -62,12 +62,14 @@ void Error_Handler(void);
 #define LED_GPIO_Port GPIOC
 #define KEY_Pin GPIO_PIN_3
 #define KEY_GPIO_Port GPIOA
+#define KEY_EXTI_IRQn EXTI3_IRQn
 #define BEEP_Pin GPIO_PIN_0
 #define BEEP_GPIO_Port GPIOB
 #define I2C_SCL_Pin GPIO_PIN_6
 #define I2C_SCL_GPIO_Port GPIOB
 #define I2C_SDA_Pin GPIO_PIN_7
 #define I2C_SDA_GPIO_Port GPIOB
+
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
@@ -77,5 +79,3 @@ void Error_Handler(void);
 #endif
 
 #endif /* __MAIN_H */
-
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
