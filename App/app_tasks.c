@@ -116,6 +116,24 @@ static volatile uint8_t  s_muted      = 0u;
 static volatile uint32_t s_key_count  = 0u;
 static uint32_t          s_last_key_tick = 0u;
 
+/** 报警状态广播：TaskProcess 写，TaskMonitor 读。
+ *
+ *  ★ 为什么是普通变量而不是事件组的一位：原来它是 EVT_FLAG_ALARM，
+ *    和两个"数据就绪位"挤在同一个事件组里，会踩到 cmsis_os2.c 那个
+ *    osEventFlagsWait 封装的 `flags != rflags` 严格相等判断 —— 组里多出
+ *    一个位就返回 osErrorTimeout(2)，导致 TaskProcess 从第二圈起每圈都
+ *    走 continue，**上报和显示永久停摆**。详见 app_config.h 里的事件组说明。
+ *
+ *    这里本来就只是"给别的任务读一个状态字节"，单字节写在 Cortex-M3 上
+ *    是原子的，用不着事件组这套机制。 */
+static volatile uint8_t  s_alarm_active = 0u;
+
+/** 上一次的报警位，只用来判断"变了没有"，避免每帧都刷日志。
+ *
+ *  初值取 0xFF：保证上电后第一条报警一定打得出来（真实的报警位不可能是
+ *  0xFF —— 温度不可能同时"过高"和"过低"，所以第一帧必然与它不等）。 */
+static uint8_t  s_last_alarm = 0xFFu;
+
 /* 板载 LED 心跳分频计数（采集任务每 20 轮 = 1s 翻转一次） */
 static uint8_t s_led_divider = 0u;
 
@@ -303,13 +321,22 @@ static void task_process(void *argument)
            osFlagsWaitAll 要求两位都置位才返回，返回时自动清掉这两位 ——
            天然的"到齐一次、处理一次"语义，不需要额外的握手。
            因为 ADC 位每 50ms 就置一次、SHT30 位每 1s 置一次，
-           实际效果是本任务**约每秒被唤醒一次**。 */
+           实际效果是本任务**约每秒被唤醒一次**。
+
+           ⚠️⚠️ 这个事件组里**只能有 EVT_FLAG_DATA_READY 的那两个位**。
+           cmsis_os2.c 的 osEventFlagsWait 封装用的是 `flags != rflags`
+           严格相等判断，而 xEventGroupWaitBits 返回的是**整个事件组的值**：
+           组里只要多出一个位（比如以前那个报警状态位），封装就会返回
+           osErrorTimeout(2)，下面这个判断就必然成立 —— 而它跳过的正好是
+           "清报警位"那一行，于是那个位永远清不掉，**从第二圈起每圈必挂**。
+           现象：第一帧之后串口再无输出、屏幕冻住、Process 被 WDT 判死，
+           但喂狗和 LED 都正常。加位之前请先看 app_config.h 里那段说明。 */
         flags = osEventFlagsWait(s_events, EVT_FLAG_DATA_READY,
                                  osFlagsWaitAll, osWaitForever);
 
         if ((flags & EVT_FLAG_DATA_READY) != EVT_FLAG_DATA_READY)
         {
-            continue;   /* 被 clear 或出错，重来 */
+            continue;   /* 出错（osWaitForever 下不该发生），重来 */
         }
 
         if (!drain_latest_adc(&adc))
@@ -352,14 +379,24 @@ static void task_process(void *argument)
         if (adc.light > TH_LIGHT_HIGH) { out.alarm |= ALARM_LIGHT_HIGH; }
         if (adc.light < TH_LIGHT_LOW)  { out.alarm |= ALARM_LIGHT_LOW; }
 
-        /* ---- 广播报警状态（TaskMonitor 读它来决定要不要响蜂鸣器）---- */
-        if (out.alarm != 0u)
+        /* ---- 广播报警状态（TaskMonitor 读它来决定要不要响蜂鸣器）----
+           ★ 用普通变量而不是事件组：理由见 s_alarm_active 的声明处。
+             单字节写是原子的，TaskMonitor 读到的要么是旧值要么是新值，
+             不存在读到"半个"的问题。 */
+        s_alarm_active = (out.alarm != 0u) ? 1u : 0u;
+
+        /* ---- 报警位一变就在串口打一次 ----
+           用在"到底是哪一路在响"的排查上，省掉一轮瞎猜（app_tasks.h:37-43）：
+
+             0x40 = 只有 ALARM_SENSOR_ERR（SHT30 读失败）→ 接上就没声
+             0x10 = 光强偏高   0x20 = 光强偏低
+             0x50 / 0x60 = 光强那一路也在响，跟 SHT30 没关系
+
+           只在变化时打，所以不会淹掉日志。 */
+        if (out.alarm != s_last_alarm)
         {
-            (void)osEventFlagsSet(s_events, EVT_FLAG_ALARM);
-        }
-        else
-        {
-            (void)osEventFlagsClear(s_events, EVT_FLAG_ALARM);
+            s_last_alarm = out.alarm;
+            uart_log("[ALM] 0x%02X\r\n", (unsigned)out.alarm);
         }
 
         /* ---- 分发 ----
@@ -515,20 +552,16 @@ static void task_monitor(void *argument)
         }
 
         /* ---- 蜂鸣器 ----
-           报警状态由 TaskProcess 写在事件组里，这里直接读，不用队列。
+           报警状态由 TaskProcess 写在 s_alarm_active 里，这里直接读，不用队列。
            消音只是关声音，**报警状态本身不变** —— 显示上仍然会显示 ALARM，
            这样"静音"和"解除报警"是两件事，语义清楚。 */
+        if ((s_alarm_active != 0u) && (s_muted == 0u))
         {
-            uint32_t evt = osEventFlagsGet(s_events);
-
-            if (((evt & EVT_FLAG_ALARM) != 0u) && (s_muted == 0u))
-            {
-                BEEP_ON();
-            }
-            else
-            {
-                BEEP_OFF();
-            }
+            BEEP_ON();
+        }
+        else
+        {
+            BEEP_OFF();
         }
 
         s_heartbeat[TASK_ID_MONITOR]++;

@@ -91,6 +91,20 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
 
     __HAL_LINKDMA(uartHandle,hdmatx,hdma_usart1_tx);
 
+    /* USART1 interrupt Init
+     *
+     * ★ 这里的 DMA 只负责"把字节搬出去"，搬完之后还得靠 USART1 自己的
+     *   "发送完成(TC)"中断来收尾 —— 清 gState、回调 TxCplt。
+     *   没有这一段，DMA 发出第一帧后整个发送通道会永久卡在 BUSY_TX。
+     *   详见 Src/stm32f1xx_it.c 里 USART1_IRQHandler 的说明。
+     *
+     * ⚠️ 优先级必须是 5，不能更小。HAL_UART_TxCpltCallback 回调里要调
+     *   osSemaphoreRelease()，那是 FreeRTOS 的 ISR 版 API，要求中断优先级
+     *   数值 >= configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY(5)，
+     *   填小于 5 的值会随机跑飞。与 DMA1_Channel4 保持一致。 */
+    HAL_NVIC_SetPriority(USART1_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(USART1_IRQn);
+
   /* USER CODE BEGIN USART1_MspInit 1 */
 
   /* USER CODE END USART1_MspInit 1 */
@@ -116,6 +130,9 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
 
     /* USART1 DMA DeInit */
     HAL_DMA_DeInit(uartHandle->hdmatx);
+
+    /* USART1 interrupt DeInit */
+    HAL_NVIC_DisableIRQ(USART1_IRQn);
   /* USER CODE BEGIN USART1_MspDeInit 1 */
 
   /* USER CODE END USART1_MspDeInit 1 */

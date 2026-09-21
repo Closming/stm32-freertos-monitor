@@ -230,14 +230,28 @@
 
 /** 事件组的位定义。
  *
- *  前两位是"数据源就绪"，TaskProcess 用 osFlagsWaitAll 等这两位**同时**置位
+ *  这两位都是"数据源就绪"，TaskProcess 用 osFlagsWaitAll 等它们**同时**置位
  *  —— 这就是事件组的典型用途：**多源同步**，等所有条件齐了再往下走。
  *
- *  报警位则是**状态广播**：TaskProcess 负责置/清，TaskMonitor 用
- *  osEventFlagsGet 直接读，不需要再开一条队列传这个单 bit 的信息。 */
+ *  ★★ 这个事件组里**只能有下面这两个位**，不许再往里塞任何"状态位"。
+ *
+ *  踩过的坑：报警状态原来也放在这个组里（EVT_FLAG_ALARM = 1<<2）。
+ *  结果是报警一出现，上报和显示就**永久停摆**，而喂狗照常、LED 照常闪，
+ *  看起来像"系统卡死"又不像。
+ *
+ *  根因在 Middlewares 的 cmsis_os2.c：那个 osEventFlagsWait 封装用的是
+ *  `flags != rflags` —— **严格相等**判断；而 FreeRTOS 的 xEventGroupWaitBits
+ *  返回的是**整个事件组的值**（event_groups.c 里返回的就是 uxEventBits，
+ *  不是你要的那几位）。于是组里只要多出一个位，封装就直接返回
+ *  osErrorTimeout(2)，调用方的掩码判断必然失败。
+ *
+ *  更阴的是它**自己把自己锁死**：被 continue 跳过的那段里正好包含
+ *  "清报警位"，于是那个多出来的位永远清不掉，从第二圈起每圈必挂。
+ *
+ *  报警状态现在改用 app_tasks.c 的 s_alarm_active（volatile uint8_t）广播
+ *  —— 它本来就只是"给 TaskMonitor 读一个字节"，根本不需要事件组。 */
 #define EVT_FLAG_ADC_READY      (1UL << 0)
 #define EVT_FLAG_SHT30_READY    (1UL << 1)
-#define EVT_FLAG_ALARM          (1UL << 2)
 /** TaskProcess 等的就是这两位都到齐 */
 #define EVT_FLAG_DATA_READY     (EVT_FLAG_ADC_READY | EVT_FLAG_SHT30_READY)
 
