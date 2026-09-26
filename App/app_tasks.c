@@ -134,6 +134,16 @@ static volatile uint8_t  s_alarm_active = 0u;
  *  0xFF —— 温度不可能同时"过高"和"过低"，所以第一帧必然与它不等）。 */
 static uint8_t  s_last_alarm = 0xFFu;
 
+/** 报警**持续非零**时的重复计数。
+ *
+ *  ★ 2026-09-26 加：原来只在报警位**变化**那一刻打印，于是三个计数器只有一张
+ *  瞬时快照 —— 报警一旦稳定停在某个值（比如 SHT30 一直读失败 → `0x50` 常亮），
+ *  就完全看不出 nack / timeout / crc 是在涨还是不动。
+ *  做摘锁实验时这等于手里没有数据，所以补上周期性重复。
+ *
+ *  TaskProcess 约 1 Hz 循环，5 次 ≈ 5 秒一条。报警归零时不重复，不会淹日志。 */
+static uint8_t  s_alm_repeat = 0u;
+
 /* 板载 LED 心跳分频计数（采集任务每 20 轮 = 1s 翻转一次） */
 static uint8_t s_led_divider = 0u;
 
@@ -405,10 +415,21 @@ static void task_process(void *argument)
            三个计数器（app_i2c.h:120,123、app_sht30.h:53）早就备好了，
            实现完却一直没人读 —— 接口没有读者，等于没写。
 
-           只在变化时打，所以不会淹掉日志。 */
+           变化时必打；报警**持续非零**时每 5 秒也重复一条（见 s_alm_repeat）。
+           报警全归零时不重复，所以正常跑起来不会淹掉日志。 */
         if (out.alarm != s_last_alarm)
         {
             s_last_alarm = out.alarm;
+            s_alm_repeat = 0u;
+            uart_log("[ALM] 0x%02X (nack=%u timeout=%u crc=%u)\r\n",
+                     (unsigned)out.alarm,
+                     (unsigned)i2c_get_nack_count(),
+                     (unsigned)i2c_get_timeout_count(),
+                     (unsigned)sht30_get_crc_error_count());
+        }
+        else if (out.alarm != 0u && ++s_alm_repeat >= 5u)
+        {
+            s_alm_repeat = 0u;
             uart_log("[ALM] 0x%02X (nack=%u timeout=%u crc=%u)\r\n",
                      (unsigned)out.alarm,
                      (unsigned)i2c_get_nack_count(),
