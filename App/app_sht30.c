@@ -7,6 +7,7 @@
 
 #include "app_sht30.h"
 #include "app_i2c.h"
+#include "app_uart.h"
 #include "cmsis_os2.h"
 
 /* ==========================================================================
@@ -17,8 +18,19 @@
  *
  * 为什么关拉伸：打开拉伸的话传感器在转换期间会把 SCL 拉住不放，
  * 软件模拟 I²C 必须一直等它——逻辑更复杂，而且要从总线层面处理。
- * 关掉之后主机自己等固定时间即可，行为可预期。 */
-#define SHT30_CMD_MEASURE_HIGH  0x2C06u
+ * 关掉之后主机自己等固定时间即可，行为可预期。
+ *
+ * ★★ 2026-09-26 修：这里原本写的是 **0x2C06**，那恰恰是**开启**时钟拉伸的
+ *    那一个（数据手册里单次测量分两组：0x2Cxx = stretching enabled，
+ *    0x24xx = stretching disabled，低字节 0x06 就是"高重复性 + 使能拉伸"）。
+ *    注释写着要关，命令字却在开 —— 意图和实现相反。
+ *
+ *    后果：传感器收到命令后把 SCL 拉住约 15ms，而软件 I²C 的
+ *    scl_release_and_wait() 守卫只有 I2C_STRETCH_LIMIT≈1ms，必然超时；
+ *    超时后 i2c_bus_stop() 又丢弃了返回值照常往下走 → 发出的是无效 STOP →
+ *    总线卡在脏状态，**共总线上的 SSD1306 一起失联**，上电即黑屏。
+ *    详见 README「遇到的问题与解决」。 */
+#define SHT30_CMD_MEASURE_HIGH  0x2400u
 
 /** 高重复性单次测量的转换时间上限（数据手册给 15ms，留余量取 20ms） */
 #define SHT30_CONVERSION_MS     20u
@@ -26,8 +38,23 @@
 /** 读回的 6 个字节：温度 2 + 温度CRC 1 + 湿度 2 + 湿度CRC 1 */
 #define SHT30_READ_LEN          6u
 
-/** 每一次 CRC 校验覆盖的字节数（2 字节数据 + 1 字节校验） */
-#define SHT30_CRC_BLOCK         3u
+/** 每一次 CRC 校验**覆盖**的字节数 —— 只有这 2 个数据字节。
+ *
+ * ★★ 2026-09-26 修：这里原本是 **3**，注释还写着"2 字节数据 + 1 字节校验"——
+ *    把**校验值本身**也算进了被校验的区间，理解反了。
+ *
+ *    数据手册的规定是：器件对 2 个数据字节算 CRC，把结果作为第 3 字节发出来。
+ *    主机这边要做的只是「算前 2 字节，和第 3 字节比」。
+ *
+ *    后果：CRC-8 有个性质 —— 若 crc8(A,B) == C，则把 C 再异或进去后结果必为 0，
+ *    即 crc8(A,B,C) 恒等于 0x00。而代码拿这个 0 去和 raw[2]（真实校验值）比，
+ *    **除非校验值恰好是 0x00，否则 100% 不相等** —— 于是每一次读取都判失败，
+ *    但读到的数据其实一直是对的。
+ *
+ *    这个 bug 的表象极具误导性：ALARM_SENSOR_ERR 常亮、OLED 恒显 --.--，
+ *    看着像接线/上拉/时钟拉伸，实际全是软件。当天一路查了供电、上拉、
+ *    时钟拉伸、锁竞争才走到这里。教训：**CRC 失败先怀疑校验区间，再怀疑信号。** */
+#define SHT30_CRC_BLOCK         2u
 
 /* ==========================================================================
  * 模块内部状态
@@ -64,6 +91,34 @@ static uint8_t sht30_crc8(const uint8_t *data, uint8_t len)
     }
 
     return crc;
+}
+
+/** CRC 失败时把原始 6 字节打出来，只打前几次。
+ *
+ * 为什么要这个：nack=0 / timeout=0 之后，唯一还说不清的就是 crc。
+ * 「读到了 6 个字节但校验对不上」有两种截然不同的成因，光看计数器分不出：
+ *
+ *   全 0x00 / 全 0xFF  → 器件根本没返回有效数据
+ *                        （命令没生效，或者转换还没完成就去读了）
+ *   数值看着像回事      → 数据本身是"合理"的，那问题在采样点偏了，
+ *                        或者 CRC 算法与器件实际用的那套不一致
+ *
+ * 只打前 3 次：TaskSensor 一秒读一次，不加限制会淹掉串口。
+ * ★ 诊断用，问题定位后可以整段删掉。 */
+static void sht30_log_raw_crc_fail(const uint8_t *raw, uint32_t err_seq)
+{
+    if (err_seq > 3u)
+    {
+        return;
+    }
+
+    uart_log("[SHT] crc fail #%u raw=%02X %02X %02X %02X %02X %02X"
+             " calcT=%02X calcH=%02X\r\n",
+             (unsigned)err_seq,
+             (unsigned)raw[0], (unsigned)raw[1], (unsigned)raw[2],
+             (unsigned)raw[3], (unsigned)raw[4], (unsigned)raw[5],
+             (unsigned)sht30_crc8(&raw[0], SHT30_CRC_BLOCK),
+             (unsigned)sht30_crc8(&raw[3], SHT30_CRC_BLOCK));
 }
 
 /* ==========================================================================
@@ -160,11 +215,13 @@ bool sht30_read(sht30_data_t *out)
     if (sht30_crc8(&ctx.raw[0], SHT30_CRC_BLOCK) != ctx.raw[2])
     {
         s_crc_error_count++;
+        sht30_log_raw_crc_fail(ctx.raw, s_crc_error_count);
         return false;
     }
     if (sht30_crc8(&ctx.raw[3], SHT30_CRC_BLOCK) != ctx.raw[5])
     {
         s_crc_error_count++;
+        sht30_log_raw_crc_fail(ctx.raw, s_crc_error_count);
         return false;
     }
 

@@ -98,6 +98,14 @@ static uint8_t s_gram[SSD1306_PAGE_COUNT][SSD1306_WIDTH];
 
 static uint32_t s_flush_error_count = 0u;
 
+/** ★ 屏在不在。由 ssd1306_init() 的成败决定，此后不再改变。
+ *
+ *  为什么要有这个标志：显示是**可选外设**。屏不接（或接坏）的时候，
+ *  整个监测终端仍然应该继续采集、上报 —— 它的核心职责是"测"，不是"显示"。
+ *  没有这个标志的话，TaskDisplay 每 500ms 试一次刷屏、每 500ms 打一条
+ *  失败日志，会把串口上真正有用的 [ALM] 淹掉。 */
+static bool s_present = false;
+
 /* ==========================================================================
  * 底层：命令与数据的事务实现体
  *
@@ -229,11 +237,26 @@ void ssd1306_init(void)
 
     if (!ssd1306_send_cmd(s_init_seq, (uint16_t)sizeof(s_init_seq)))
     {
-        /* 屏初始化不了，后面所有显示都没意义。早失败早发现。 */
-        Error_Handler();
+        /* 屏没应答。★ 这里**刻意不调 Error_Handler()**。
+         *
+         * 旧实现是"早失败早发现"，直接 Error_Handler()；但那个函数会
+         * __disable_irq() 卡进死循环，**把调度器和串口一起带走**。
+         * 后果是「没接 OLED」和「整块板子根本没跑起来」在外部看起来一模一样，
+         * 单独排查某个挂在总线上的器件时，会被这个假象彻底带偏。
+         *
+         * 显示本来就是可选外设：屏不接，采集 / 上报 / 看门狗都该照常跑。
+         * 置 s_present = false 就够了，TaskDisplay 会跳过后续刷屏。 */
+        s_present = false;
+        return;
     }
 
+    s_present = true;
     (void)ssd1306_flush();
+}
+
+bool ssd1306_is_present(void)
+{
+    return s_present;
 }
 
 void ssd1306_clear(void)

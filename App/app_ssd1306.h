@@ -34,10 +34,15 @@
  * @brief 发送初始化序列。
  *
  * 必须在 i2c_init() **之后**调用（要靠总线锁）。
- * 初始化失败会进入 Error_Handler() —— 屏不亮的话后面什么都看不见，
- * 早点停下来比带着一块黑屏继续跑好排查。
+ * ★ 初始化失败**不再致命**：屏不接时系统照常运行，只是把 s_present 置 false。
+ * 用 ssd1306_is_present() 查询结果，false 时调用方应跳过渲染与刷新。
+ * （不要改回 Error_Handler() —— 那会 __disable_irq() 卡死，连串口一起带走，
+ *   使「屏没接」和「板子没跑起来」无法区分，详见 app_ssd1306.c。）
  */
 void ssd1306_init(void);
+
+/** @brief 屏是否就绪。ssd1306_init() 之后有效；false = 屏没应答。 */
+bool ssd1306_is_present(void);
 
 /** @brief 清空显存（只改内存，不动屏；要看见效果得再调 ssd1306_flush） */
 void ssd1306_clear(void);

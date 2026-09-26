@@ -388,15 +388,32 @@ static void task_process(void *argument)
         /* ---- 报警位一变就在串口打一次 ----
            用在"到底是哪一路在响"的排查上，省掉一轮瞎猜（app_tasks.h:37-43）：
 
-             0x40 = 只有 ALARM_SENSOR_ERR（SHT30 读失败）→ 接上就没声
+             0x40 = 只有 ALARM_SENSOR_ERR（SHT30 读失败）
              0x10 = 光强偏高   0x20 = 光强偏低
-             0x50 / 0x60 = 光强那一路也在响，跟 SHT30 没关系
+
+           ★ 2026-09-26 修正：原文写的是「0x50 / 0x60 = 光强那一路也在响，
+             跟 SHT30 没关系」—— **这句是错的**。0x50 = 0x40 | 0x10，
+             其中的 bit6 恰恰就是 ALARM_SENSOR_ERR。当天就是照着这句
+             把 0x50 判成"纯光强问题"，白绕了一圈。报警位是**按位或**，
+             别把高位当成与 SHT30 无关。
+
+           ---- 附带三个 I²C 计数器 ----
+           ALARM_SENSOR_ERR 只说了"读失败了"，但成因有三种，光看报警位分不出来：
+             nack 大    → 器件不应答     → 供电 / 接线 / 地址
+             crc 大     → 通信到了但数据错 → 时序（从机掐时钟）或干扰
+             timeout 大 → 拿不到总线锁   → 任务间抢总线
+           三个计数器（app_i2c.h:120,123、app_sht30.h:53）早就备好了，
+           实现完却一直没人读 —— 接口没有读者，等于没写。
 
            只在变化时打，所以不会淹掉日志。 */
         if (out.alarm != s_last_alarm)
         {
             s_last_alarm = out.alarm;
-            uart_log("[ALM] 0x%02X\r\n", (unsigned)out.alarm);
+            uart_log("[ALM] 0x%02X (nack=%u timeout=%u crc=%u)\r\n",
+                     (unsigned)out.alarm,
+                     (unsigned)i2c_get_nack_count(),
+                     (unsigned)i2c_get_timeout_count(),
+                     (unsigned)sht30_get_crc_error_count());
         }
 
         /* ---- 分发 ----
@@ -428,21 +445,35 @@ static void task_display(void *argument)
         {
             ssd1306_init();
             inited = true;
-            uart_log("[DISP] OLED init done\r\n");
+
+            if (ssd1306_is_present())
+            {
+                uart_log("[DISP] OLED init done\r\n");
+            }
+            else
+            {
+                /* ★ 这条日志不能省。没有它，「OLED 没插」和「SHT30 读不通」
+                   在串口上会表现得一模一样，排查时必然带偏。 */
+                uart_log("[DISP] OLED ABSENT - display disabled\r\n");
+            }
         }
 
+        /* 队列照样要取出来（否则 Process 会把队列塞满），屏不在时只是不渲染。 */
         if (osMessageQueueGet(s_display_queue, &s, NULL, 0u) == osOK)
         {
-            render_screen(&s);
-
-            /* ★ 刷屏失败不能静默。原来这里是 `(void)ssd1306_flush();`，
-               返回值被丢掉、s_flush_error_count 又没人读 —— 屏不亮的时候
-               串口上一条线索都没有，只能在硬件上瞎猜。
-               失败率不用很精确，能看出"在刷但刷不过去"就够了。 */
-            if (!ssd1306_flush())
+            if (ssd1306_is_present())
             {
-                uart_log("[DISP] flush FAILED, total=%u\r\n",
-                         (unsigned)ssd1306_get_flush_error_count());
+                render_screen(&s);
+
+                /* ★ 刷屏失败不能静默。原来这里是 `(void)ssd1306_flush();`，
+                   返回值被丢掉、s_flush_error_count 又没人读 —— 屏不亮的时候
+                   串口上一条线索都没有，只能在硬件上瞎猜。
+                   失败率不用很精确，能看出"在刷但刷不过去"就够了。 */
+                if (!ssd1306_flush())
+                {
+                    uart_log("[DISP] flush FAILED, total=%u\r\n",
+                             (unsigned)ssd1306_get_flush_error_count());
+                }
             }
         }
 
