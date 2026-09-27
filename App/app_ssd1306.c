@@ -272,7 +272,9 @@ bool ssd1306_flush(void)
 
     /* ★ 分片发送：每次事务写 SSD1306_FLUSH_CHUNK_PAGES 页，
        事务之间**释放总线锁**，让别的任务有机会插进来。
-       整屏 1024 字节一次发完的话，锁要被占住约 150ms。 */
+       整屏 1024 字节一次发完的话，锁要被占住约 **600ms**
+       （★ 2026-09-26 实测反推；早先这里写 150ms，偏小一倍以上，
+         见 app_config.h 那段更正）。分片后单段仍 > 100ms。 */
     for (page = 0u; page < SSD1306_PAGE_COUNT; page += SSD1306_FLUSH_CHUNK_PAGES)
     {
         uint8_t end = (uint8_t)(page + SSD1306_FLUSH_CHUNK_PAGES - 1u);
