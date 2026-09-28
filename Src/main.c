@@ -98,7 +98,9 @@ int main(void)
   MX_ADC1_Init();
   MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
-  osKernelInitialize();
+  /* 这里不要再调 osKernelInitialize()：下面 CubeMX 生成的那一行已经调过了。
+     第二次调用时 KernelState 已是 osKernelReady，cmsis_os2.c 会直接返回
+     osError（返回值没人接，所以无害，但属于多余代码）。 */
 
   /* USER CODE END 2 */
 

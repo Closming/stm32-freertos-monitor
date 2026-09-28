@@ -49,20 +49,10 @@
 /* USER CODE BEGIN Variables */
 
 /* USER CODE END Variables */
-/* Definitions for defaultTask */
-osThreadId_t defaultTaskHandle;
-const osThreadAttr_t defaultTask_attributes = {
-  .name = "defaultTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow,
-};
-
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
    
 /* USER CODE END FunctionPrototypes */
-
-void StartDefaultTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
@@ -92,29 +82,25 @@ void MX_FREERTOS_Init(void) {
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
 
-  /* Create the thread(s) */
-  /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
-
   /* USER CODE BEGIN RTOS_THREADS */
 
   /* 创建队列 / 事件组 / 互斥锁，并创建六个任务（实现见 App/app_tasks.c） */
   app_init();
 
-  /* ★ 为什么删掉了 CubeMX 生成的 defaultTask：
+  /* ★ 这里为什么没有 CubeMX 生成的 defaultTask：
    *
-   *   CubeMX 是按 CMSIS-RTOS **V1** 规则生成代码的，那里的宏是
-   *       osThreadDef(name, thread, priority, instances, stacksz)   <- 5 个参数
-   *   而本项目用的是 **V2**，V2 兼容层里这个宏是
-   *       osThreadDef(name, priority, instances, stacksz)           <- 4 个参数
-   *   （V2 把"入口函数"延后到 osThreadNew 时才传，不再放进定义里）
+   *   CubeMX 的 FreeRTOS 配置里默认带一个 defaultTask，内容只有
+   *       for(;;) { osDelay(1); }
+   *   一个空循环。六个真正的任务全部由上面的 app_init() 创建，它不起任何作用，
+   *   却要占一个任务槽和 512 字节栈（本工程 RAM 一共才 20KB）。
    *
-   *   所以 CubeMX 生成的那一行直接编译不过。而它本来也只是个
-   *   `for(;;) osDelay(1);` 的空循环，六个真正的任务全部由 app_init()
-   *   创建 —— 删掉它既解决了编译错误，也省下一个任务槽和 512 字节栈。
+   *   所以它已经从 .ioc 的 FreeRTOS 任务列表里一并删掉了
+   *   （见 .ioc 的 FREERTOS.IPParameters，里面只剩 configTOTAL_HEAP_SIZE），
+   *   CubeMX 重新生成时不会再产生它。
    *
-   *   ⚠️ 将来若在 CubeMX 里重新 GENERATE CODE，它会被重新生成出来，
-   *      需要再删一次。详见 README「已知局限」。 */
+   *   ⚠️ 这里踩过一次：早期是手工删代码、.ioc 里还留着它，于是 2026-09-21 用
+   *      CubeMX 6.18.1 原生 V2 重新生成之后它又悄悄回来了，还带着一段写着
+   *      「已删掉」的注释。代码和 .ioc 两边一起改才是干净的。 */
 
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
@@ -123,24 +109,6 @@ void MX_FREERTOS_Init(void) {
   /* add events, ... */
   /* USER CODE END RTOS_EVENTS */
 
-}
-
-/* USER CODE BEGIN Header_StartDefaultTask */
-/**
-  * @brief  Function implementing the defaultTask thread.
-  * @param  argument: Not used
-  * @retval None
-  */
-/* USER CODE END Header_StartDefaultTask */
-void StartDefaultTask(void *argument)
-{
-  /* USER CODE BEGIN StartDefaultTask */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END StartDefaultTask */
 }
 
 /* Private application code --------------------------------------------------*/

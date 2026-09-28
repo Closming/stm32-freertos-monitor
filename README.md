@@ -403,7 +403,21 @@ CubeMX 6.18.1 起 ST 去掉了那条白名单，STM32F1 可以原生选择 V2。
 CubeMX 6.18.1 + FW_F1 V1.8.7 + FreeRTOS V10.3.1，并按 `.ioc` 里的 `CMSIS_V2` 重新生成。
 上面 13 处里有 6 处不再需要（手工放置 `CMSIS_RTOS_V2` 目录、在 uvprojx 里换源文件、
 把 IncludePath 指向 V2、`FreeRTOSConfig.h` 里那十几个 config 开关、删除 defaultTask、
-手工补 `osKernelInitialize()`），现在由 CubeMX 自己生成。
+手工补 `osKernelInitialize()`）。除 `defaultTask` 外的五项，现在由 CubeMX 直接生成正确内容。
+
+同理，早期手工补的那行 `osKernelInitialize()` 也已在 2026-09-28 从 `Src/main.c` 的
+USER CODE 区删掉 —— 原生 V2 生成时 CubeMX 自己会补一行，两行都留着就会调两次，
+第二次只会返回 `osError`（返回值无人接收，无害，但是多余代码）。
+
+`defaultTask` 是例外，而且方向正好相反：**CubeMX 依然会生成它，但生成出来的东西本身没用**
+—— 内容只有一个 `for(;;) osDelay(1);` 的空循环，六个真正的任务全部由 `app_init()` 创建，
+它白占一个任务槽和 512 字节栈（这 512 字节在 `configTOTAL_HEAP_SIZE` 那个定长数组里，
+`Program Size` 看不出来）。所以现在的做法不是"生成之后再手工删代码"，而是
+**从 `.ioc` 的 FreeRTOS 任务列表里删掉它**（`FREERTOS.IPParameters` 里只剩
+`configTOTAL_HEAP_SIZE`），让 CubeMX 根本不生成。
+
+只删代码、不改 `.ioc` 是没用的：2026-09-21 用 6.18.1 原生 V2 重新生成时就因为这样
+让它又回来过一次，而 `Src/freertos.c` 里那段注释还写着"已删掉"。
 
 ### 重新生成后需要确认的内容
 
@@ -411,12 +425,13 @@ CubeMX 6.18.1 + FW_F1 V1.8.7 + FreeRTOS V10.3.1，并按 `.ioc` 里的 `CMSIS_V2
 |---|---|---|
 | `.ioc` | FreeRTOS 接口选择 **CMSIS_V2** | 改回 V1 会与 `App/` 里的代码不兼容 |
 | `.ioc` | IWDG 分频 `IWDG_PRESCALER_64`、Reload `1249` | 默认的 `_8` / `1250` 实际超时只有 250 ms，而喂狗周期是 500 ms，板子会不停复位 |
+| `.ioc` | FreeRTOS 任务列表里**没有** `defaultTask` | CubeMX 默认会生成一个空循环任务，白占 512 字节栈，见上一节 |
 | `.ioc` | `NVIC.EXTI3_IRQn`、`NVIC.USART1_IRQn` 均使能，优先级 5 | 优先级数值必须不小于 `configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY`，中断里要调 FreeRTOS 的 ISR 版 API |
 | `MDK-ARM/*.uvprojx` | IncludePath 里的 `../App` | `Src/freertos.c` 要 `#include "app_tasks.h"` |
 | `Src/freertos.c` | USER CODE 区调用 `app_init()` | 本项目代码的入口 |
 | `App/` | 全部源码 | CubeMX 不管理这个目录 |
 
-`App/` 目录和 USER CODE 区在重新生成时是安全的，前三项由 CubeMX 依据 `.ioc` 生成，
+`App/` 目录和 USER CODE 区在重新生成时是安全的，`.ioc` 那几项由 CubeMX 依据 `.ioc` 生成，
 只有 uvprojx 里的 include 路径需要在重新生成后确认一次。
 
 ---
