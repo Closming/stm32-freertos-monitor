@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+import threading
 import time
 from collections import deque
 from pathlib import Path
@@ -37,8 +38,67 @@ PLOT_HISTORY = 1000
 #: 控制台统计的打印间隔（秒）
 STATS_INTERVAL_S = 2.0
 
+#: 中文字体候选，按优先级排列。后面的都是 Windows 自带，装了就一定找得到。
+CJK_FONT_CANDIDATES = ("Microsoft YaHei", "SimHei", "SimSun", "Noto Sans CJK SC")
+
+
+def setup_cjk_font() -> str | None:
+    """给 matplotlib 挑一个含汉字字形的字体，返回选中的字体名。
+
+    ★ 为什么必须做：matplotlib 默认的 DejaVu Sans **没有汉字字形**，
+      不设这个的话曲线窗口里所有中文标签都会渲染成豆腐块（□□□）——
+      标题、轴标签、图例全军覆没，录演示视频时是当场翻车级的难看。
+      这个坑很隐蔽，因为**它只报警告不报错**，`--selftest` 也照样"通过"。
+
+    返回 None 表示一个中文字体都没找到（此时图上的中文会是方块，
+    调用方应提示用户）。
+    """
+    from matplotlib import font_manager, rcParams
+
+    available = {f.name for f in font_manager.fontManager.ttflist}
+    for name in CJK_FONT_CANDIDATES:
+        if name in available:
+            rcParams["font.sans-serif"] = [name, *rcParams["font.sans-serif"]]
+            # ★ 负号也得管：中文字体里通常没有 U+2212（真减号），
+            #   不管的话温度出现负值时，刻度上的负号会变成豆腐块。
+            rcParams["axes.unicode_minus"] = False
+            return name
+    return None
+
 
 # ---------------------------------------------------------------- 数据源
+
+#: 判为"虚拟串口"的特征串（出现在 hwid 或描述里就跳过）。
+#: 蓝牙/RFCOMM 虚拟口就是这一类。
+_VIRTUAL_PORT_MARKERS = ("BTHENUM", "RFCOMM", "BLUETOOTH")
+
+
+def _is_virtual_port(p) -> bool:
+    blob = f"{p.hwid} {p.description}".upper()
+    return any(m in blob for m in _VIRTUAL_PORT_MARKERS)
+
+
+def _pick_port(candidates):
+    """从候选里挑一个最像"真实 USB 转串口"的，返回 (port 或 None, 提示语 或 None)。
+
+    ★★ 为什么不能直接取 candidates[0]：
+       本机常驻两个**蓝牙虚拟串口 COM5/COM6**，而它们**排在 CH340 前面**。
+       原来的写法就是 `port = candidates[0].device`，于是不指定 --port 时
+       必然选中蓝牙口 —— 现象是"上位机一条数据都收不到"，
+       而人第一反应会去怀疑**固件没在发**，排查方向从一开始就错了。
+
+    真实 USB 转串口（CH340 / CP2102 / FT232…）的 hwid 里带 `USB VID:PID`。
+    挑不到 USB 口时**返回 None 让调用方报错**，而不是退而求其次选蓝牙口 ——
+    "默默地选错"比"明确地失败"坏得多。
+    """
+    usb = [p for p in candidates if not _is_virtual_port(p)]
+    if not usb:
+        return None, None
+    note = None
+    if len(usb) > 1:
+        note = f"找到 {len(usb)} 个可用串口，挑了第一个；要换用 --port 指定"
+    return usb[0].device, note
+
 
 def source_serial(port: str | None, baud: int):
     """从串口读字节。需要 pyserial。"""
@@ -57,10 +117,21 @@ def source_serial(port: str | None, baud: int):
         candidates = list(list_ports.comports())
         if not candidates:
             sys.exit("没找到任何串口。检查 CH340 驱动和 USB 线，或用 --port 手动指定。")
+
         print("可用串口：")
         for p in candidates:
-            print(f"  {p.device}  {p.description}")
-        port = candidates[0].device
+            tag = "   ← 蓝牙/虚拟口，跳过" if _is_virtual_port(p) else ""
+            print(f"  {p.device}  {p.description}{tag}")
+
+        port, note = _pick_port(candidates)
+        if port is None:
+            sys.exit(
+                "只找到蓝牙/虚拟串口，没有 USB 转串口设备。\n"
+                "  · CH340 插上了吗？驱动装了吗？\n"
+                "  · 或用 --port 手动指定，例如  --port COM3"
+            )
+        if note:
+            print(f"⚠ {note}")
         print(f"自动选用 {port}（用 --port 可以指定别的）")
 
     ser = serial.Serial(port, baud, timeout=0.2)
@@ -154,6 +225,12 @@ def plot_loop(gen, parser: FrameParser, sink: CsvSink | None, csv_path: Path | N
     except ImportError:
         sys.exit("没有安装 matplotlib，去掉 --plot 用控制台模式，或者 pip install matplotlib")
 
+    font = setup_cjk_font()
+    if font is None:
+        print("⚠ 系统里没找到中文字体，图上的中文会显示成方块（□□□）")
+    else:
+        print(f"绘图字体：{font}")
+
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
     fig.suptitle("STM32 FreeRTOS 多任务环境监测终端")
 
@@ -173,15 +250,46 @@ def plot_loop(gen, parser: FrameParser, sink: CsvSink | None, csv_path: Path | N
     ax2.legend(loc="upper left")
     ax2.grid(True, alpha=0.3)
 
+    # ★★ 采集必须在**后台线程**里做，动画回调绝不能自己去 next(gen)。
+    #
+    #   踩过的坑：原来 update() 里写的是
+    #       for _ in range(64):
+    #           for frame in parser.feed(next(gen, b"")):
+    #   本意是"把积压的数据一次吃干净"。但串口那条生成器在没数据时
+    #   **不会返回**——`ser.read()` 超时返回空、`if chunk:` 不成立、
+    #   它就自己再循环一次，直到下一帧到达才 yield。1Hz 的数据率下，
+    #   每次 next() 实测阻塞约 **1.14 秒**，64 次就是 **73 秒**。
+    #   GUI 主线程被摁住 73 秒 → 窗口一直"未响应"（用户实测症状）。
+    #
+    #   改法：读的归读、画的归画。后台线程负责喂帧，回调只做非阻塞的取。
+    #   deque 的 append / popleft 在 CPython 下是原子的，不需要额外加锁。
+    pending: deque[Frame] = deque()
+
+    def reader() -> None:
+        try:
+            # ★ 注意是 `in gen` 而不是 `in gen()` —— gen 到这里**已经是一个
+            #   生成器对象**了（main 里是 make_source()() 调了两次）。
+            #   多写一对括号会立刻 TypeError，而且是在子线程里，主线程只看到
+            #   "窗口开着但曲线永远不动"。
+            for chunk in gen:
+                pending.extend(parser.feed(chunk))
+        except Exception as exc:  # noqa: BLE001
+            # 串口被拔掉之类。★ 必须把异常原文打出来：只说一句"读取线程退出了"
+            # 等于没说，排查时只能靠猜（本项目在 #error 那条上踩过同样的坑）。
+            print(f"\n⚠ 串口读取线程退出：{type(exc).__name__}: {exc}")
+            print("  曲线不会再更新。若为串口错误，检查 USB 线/端口占用后重启本程序。")
+
+    threading.Thread(target=reader, daemon=True, name="frame-reader").start()
+
     def update(_):
-        # 每帧尽量把所有积压的数据都吃掉，避免曲线落后于现实
-        for _ in range(64):
-            for frame in parser.feed(next(gen, b"")):
-                hist_t.append(frame.temp_c)
-                hist_h.append(frame.humidity)
-                hist_l.append(frame.light)
-                if sink:
-                    sink.write(frame)
+        # 非阻塞：只取后台线程已经攒下的帧，有多少取多少，绝不在这里等
+        while pending:
+            frame = pending.popleft()
+            hist_t.append(frame.temp_c)
+            hist_h.append(frame.humidity)
+            hist_l.append(frame.light)
+            if sink:
+                sink.write(frame)
 
         n = len(hist_t)
         if n:
